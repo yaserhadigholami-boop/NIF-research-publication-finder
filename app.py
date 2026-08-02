@@ -254,30 +254,49 @@ if st.button("🔍 Search Publications"):
     # First collect papers
     # -----------------------------------------------
 
-    papers_to_check=[]
+papers_to_check=[]
 
 
+openalex_progress = st.progress(
+    0,
+    text="Searching authors..."
+)
 
-    for author in authors:
+
+for i, author in enumerate(authors):
 
 
-        status.write(
-            f"🔎 Searching OpenAlex: {author}"
+    status.write(
+        f"🔎 Searching OpenAlex for: {author}"
+    )
+
+
+    papers = search_openalex(
+        author
+    )
+
+
+    for p in papers:
+
+        p["author_search"] = author
+
+        papers_to_check.append(
+            p
         )
 
 
-        papers=search_openalex(
-            author
-        )
+    openalex_percent = int(
+        ((i + 1) / len(authors)) * 100
+    )
 
 
-        for p in papers:
+    openalex_progress.progress(
+        (i + 1) / len(authors),
+        text=f"OpenAlex search {openalex_percent}%"
+    )
 
-            p["author_search"]=author
 
-            papers_to_check.append(
-                p
-            )
+openalex_progress.empty()
 
 
 
@@ -408,8 +427,8 @@ if st.button("🔍 Search Publications"):
 
 
         progress_bar.progress(
-            processed/total,
-            text=f"Processing {percent}%"
+    processed / total,
+    text=f"PDF processing {percent}%"
         )
 
 
