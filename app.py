@@ -23,9 +23,8 @@ st.write(
 
 authors_text = st.text_area(
     "Authors (one per line)",
-    """Matthew Kiernan
-Luke Henderson
-Sharon Naismith""",
+    "",
+    placeholder="Enter author names, one per line",
     height=120
 )
 
@@ -58,11 +57,8 @@ Tesla""",
     height=150
 )
 
-authors = [
-    a.strip()
-    for a in authors_text.splitlines()
-    if a.strip()
-]
+if len(authors) == 0:
+    st.warning("Please enter at least one author name.")
 
 keywords = [
     k.strip()
