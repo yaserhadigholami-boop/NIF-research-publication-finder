@@ -57,14 +57,23 @@ Tesla""",
     height=150
 )
 
-if len(authors) == 0:
-    st.warning("Please enter at least one author name.")
+authors_text = st.text_area(
+    "Authors (one per line)",
+    "",
+    placeholder="Enter author names, one per line",
+    height=120
+)
 
-keywords = [
-    k.strip()
-    for k in keywords_text.splitlines()
-    if k.strip()
+
+authors = [
+    a.strip()
+    for a in authors_text.splitlines()
+    if a.strip()
 ]
+
+
+if len(authors) == 0:
+    st.info("Enter author names to start searching.")
 
 # --------------------------------------------------------
 # FUNCTIONS
