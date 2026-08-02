@@ -97,8 +97,11 @@ keywords = [
 
 def search_openalex(author):
 
-    url = "https://api.openalex.org/works"
+    # ---------------------------------------
+    # Method 1: Original working approach
+    # ---------------------------------------
 
+    url = "https://api.openalex.org/works"
 
     params = {
 
@@ -121,33 +124,15 @@ def search_openalex(author):
             timeout=60
         )
 
-
-        return response.json().get(
+        papers = response.json().get(
             "results",
             []
         )
 
 
-    except Exception:
+        if len(papers) > 0:
 
-        return []
-
-
-
-
-def download_pdf(url):
-
-    try:
-
-        response = requests.get(
-            url,
-            timeout=60
-        )
-
-
-        if response.status_code == 200:
-
-            return response.content
+            return papers
 
 
     except:
@@ -155,72 +140,78 @@ def download_pdf(url):
         pass
 
 
-    return None
+
+    # ---------------------------------------
+    # Method 2: Author ID fallback
+    # ---------------------------------------
+
+    author_url = "https://api.openalex.org/authors"
 
 
+    author_params = {
 
+        "search": author,
 
-def extract_text(pdf_bytes):
+        "per_page":5
+    }
+
 
     try:
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".pdf",
-            delete=False
-        ) as tmp:
-
-            tmp.write(pdf_bytes)
-
-            filename = tmp.name
-
-
-
-        doc = fitz.open(
-            filename
+        r = requests.get(
+            author_url,
+            params=author_params,
+            timeout=60
         )
 
 
-        text = ""
-
-
-        for page in doc:
-
-            text += page.get_text()
-
-
-
-        doc.close()
-
-
-        os.remove(
-            filename
+        authors_found = r.json().get(
+            "results",
+            []
         )
 
 
-        return text.lower()
+        if len(authors_found)==0:
 
+            return []
+
+
+
+        author_id = authors_found[0]["id"].split("/")[-1]
+
+
+
+        works_url = "https://api.openalex.org/works"
+
+
+        works_params = {
+
+            "filter":
+            f"author.id:{author_id},"
+            f"from_publication_date:{start_year}-01-01,"
+            f"to_publication_date:{end_year}-12-31,"
+            "open_access.is_oa:true",
+
+            "per_page":200
+        }
+
+
+        r = requests.get(
+            works_url,
+            params=works_params,
+            timeout=60
+        )
+
+
+        return r.json().get(
+            "results",
+            []
+        )
 
 
     except:
 
-        return ""
-
-
-
-
-def find_keywords(text):
-
-    found = []
-
-
-    for keyword in keywords:
-
-        if keyword.lower() in text:
-
-            found.append(keyword)
-
-
-    return found
+        return []
 
 
 
