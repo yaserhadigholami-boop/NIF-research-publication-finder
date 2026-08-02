@@ -58,6 +58,7 @@ with col2:
     )
 
 
+
 keywords_text = st.text_area(
     "Keywords (one per line)",
     """Brain and Mind
@@ -87,11 +88,13 @@ keywords = [
 ]
 
 
+
 if len(authors) == 0:
 
     st.info(
         "Enter author names to start searching."
     )
+
 
 
 # --------------------------------------------------------
@@ -177,6 +180,7 @@ def extract_text(pdf_bytes):
             filename = tmp.name
 
 
+
         doc = fitz.open(filename)
 
 
@@ -188,6 +192,7 @@ def extract_text(pdf_bytes):
             text += page.get_text()
 
 
+
         doc.close()
 
 
@@ -195,6 +200,7 @@ def extract_text(pdf_bytes):
 
 
         return text.lower()
+
 
 
     except:
@@ -215,9 +221,8 @@ def find_keywords(text):
             found.append(keyword)
 
 
+
     return found
-
-
 
 # --------------------------------------------------------
 # SEARCH BUTTON
@@ -236,30 +241,35 @@ if st.button("🔍 Search Publications"):
 
 
 
-    results = []
+    all_results = []
+
+    matched_results = []
 
 
-    progress_bar = st.progress(0)
 
+    # Progress elements
+
+    progress_bar = st.progress(
+        0,
+        text="Starting search..."
+    )
 
     status = st.empty()
-
 
     counter = st.empty()
 
 
 
-    # ---------------------------------------------
-    # GET ALL PAPERS FIRST
-    # ---------------------------------------------
+    # ----------------------------------------------------
+    # GET PUBLICATIONS
+    # ----------------------------------------------------
 
     status.write(
-        "Collecting publications from OpenAlex..."
+        "🔎 Searching OpenAlex database..."
     )
 
 
     author_papers = {}
-
 
     total_papers = 0
 
@@ -281,7 +291,7 @@ if st.button("🔍 Search Publications"):
     if total_papers == 0:
 
         st.warning(
-            "No publications found."
+            "No publications found for the selected authors and years."
         )
 
         st.stop()
@@ -289,7 +299,7 @@ if st.button("🔍 Search Publications"):
 
 
     status.write(
-        f"Found {total_papers} publications. Checking PDFs..."
+        f"Found {total_papers} Open Access papers. Checking PDFs..."
     )
 
 
@@ -298,9 +308,9 @@ if st.button("🔍 Search Publications"):
 
 
 
-    # ---------------------------------------------
-    # CHECK PAPERS
-    # ---------------------------------------------
+    # ----------------------------------------------------
+    # PROCESS PAPERS
+    # ----------------------------------------------------
 
     for author in authors:
 
@@ -308,11 +318,25 @@ if st.button("🔍 Search Publications"):
         papers = author_papers[author]
 
 
-
         for paper in papers:
 
 
+
             processed += 1
+
+
+            progress = processed / total_papers
+
+            percentage = int(progress * 100)
+
+
+
+            # Update progress BEFORE processing
+
+            progress_bar.progress(
+                progress,
+                text=f"Processing papers... {percentage}%"
+            )
 
 
 
@@ -327,6 +351,11 @@ if st.button("🔍 Search Publications"):
                 ""
             )
 
+
+
+            status.write(
+                f"📄 Checking: {title[:120]}"
+            )
 
 
             pdf = None
@@ -346,10 +375,18 @@ if st.button("🔍 Search Publications"):
 
 
 
+            evidence = []
+
+
+
+            # Download PDF and search
+
             if pdf:
 
 
-                pdf_bytes = download_pdf(pdf)
+                pdf_bytes = download_pdf(
+                    pdf
+                )
 
 
 
@@ -367,97 +404,151 @@ if st.button("🔍 Search Publications"):
 
 
 
-                    if len(evidence) > 0:
+            # Save ALL papers checked
+
+            result = {
+
+                "Author": author,
+
+                "Year": year,
+
+                "Title": title,
+
+                "Keyword Match":
+                    "Yes" if evidence else "No",
+
+                "Evidence Found":
+                    ", ".join(evidence),
+
+                "PDF":
+                    pdf
+
+            }
 
 
-                        results.append({
 
-                            "Author": author,
-
-                            "Year": year,
-
-                            "Title": title,
-
-                            "Evidence": ", ".join(evidence),
-
-                            "PDF": pdf
-
-                        })
-
-
-
-            # UPDATE PROGRESS
-
-            progress = processed / total_papers
-
-
-            progress_bar.progress(
-                progress
+            all_results.append(
+                result
             )
+
+
+
+            if evidence:
+
+                matched_results.append(
+                    result
+                )
+
 
 
             counter.write(
+                f"Progress: {percentage}% | "
                 f"Processed {processed}/{total_papers} papers | "
-                f"Matches found: {len(results)}"
+                f"Matches found: {len(matched_results)}"
             )
 
 
 
-    # ---------------------------------------------
-    # OUTPUT
-    # ---------------------------------------------
 
-    df = pd.DataFrame(results)
-
+    # ----------------------------------------------------
+    # RESULTS
+    # ----------------------------------------------------
 
 
-    if len(df) == 0:
+    progress_bar.progress(
+        1.0,
+        text="Completed 100%"
+    )
 
-        st.warning(
-            "No matching publications found."
-        )
+
+    status.success(
+        "✅ Search completed!"
+    )
 
 
-    else:
 
-        st.success(
-            f"Completed! Found {len(df)} matching papers."
-        )
+    all_df = pd.DataFrame(
+        all_results
+    )
 
+
+    match_df = pd.DataFrame(
+        matched_results
+    )
+
+
+
+    st.subheader(
+        "📊 All Checked Publications"
+    )
+
+
+    st.dataframe(
+        all_df,
+        use_container_width=True
+    )
+
+
+
+    st.subheader(
+        "🎯 Matching Publications"
+    )
+
+
+    if len(match_df) > 0:
 
         st.dataframe(
-            df,
+            match_df,
             use_container_width=True
         )
 
+    else:
 
-
-        output = BytesIO()
-
-
-
-        with pd.ExcelWriter(
-            output,
-            engine="openpyxl"
-        ) as writer:
-
-
-            df.to_excel(
-                writer,
-                index=False
-            )
-
-
-
-        st.download_button(
-
-            label="📥 Download Excel",
-
-            data=output.getvalue(),
-
-            file_name="Publication_Search.xlsx",
-
-            mime=
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
+        st.info(
+            "No keyword matches found."
         )
+
+
+
+    # ----------------------------------------------------
+    # EXCEL DOWNLOADS
+    # ----------------------------------------------------
+
+
+    excel_all = BytesIO()
+
+
+    with pd.ExcelWriter(
+        excel_all,
+        engine="openpyxl"
+    ) as writer:
+
+
+        all_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="All Publications"
+        )
+
+
+        match_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Keyword Matches"
+        )
+
+
+
+    st.download_button(
+
+        label="📥 Download Complete Excel Report",
+
+        data=excel_all.getvalue(),
+
+        file_name=
+        "Publication_Keyword_Search_Report.xlsx",
+
+        mime=
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    )
