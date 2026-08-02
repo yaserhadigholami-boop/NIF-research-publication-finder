@@ -16,7 +16,6 @@ st.set_page_config(
     layout="wide"
 )
 
-
 st.title("📚 Publication Keyword Search")
 
 st.write(
@@ -27,7 +26,7 @@ st.write(
 
 
 # ======================================================
-# USER INPUTS
+# INPUTS
 # ======================================================
 
 authors_text = st.text_area(
@@ -38,6 +37,7 @@ authors_text = st.text_area(
 )
 
 
+
 col1, col2 = st.columns(2)
 
 
@@ -45,7 +45,7 @@ with col1:
 
     start_year = st.number_input(
         "Start Year",
-        value=2025,
+        value=2023,
         step=1
     )
 
@@ -91,17 +91,25 @@ keywords = [
 
 
 # ======================================================
-# FUNCTIONS
+# OPENALEX SEARCH
 # ======================================================
 
 
-def search_openalex(author):
+def search_openalex(author, status):
 
-    # ---------------------------------------
-    # Method 1: Original working approach
-    # ---------------------------------------
+
+    # ---------------------------------------------
+    # METHOD 1
+    # Original approach
+    # ---------------------------------------------
+
+    status.write(
+        f"🔎 Searching OpenAlex works for {author}"
+    )
+
 
     url = "https://api.openalex.org/works"
+
 
     params = {
 
@@ -113,24 +121,31 @@ def search_openalex(author):
         "open_access.is_oa:true",
 
         "per_page":200
+
     }
+
 
 
     try:
 
-        response = requests.get(
+        r = requests.get(
             url,
             params=params,
             timeout=60
         )
 
-        papers = response.json().get(
+
+        papers = r.json().get(
             "results",
             []
         )
 
 
         if len(papers) > 0:
+
+            status.write(
+                f"✅ Found {len(papers)} papers using normal search"
+            )
 
             return papers
 
@@ -141,11 +156,20 @@ def search_openalex(author):
 
 
 
-    # ---------------------------------------
-    # Method 2: Author ID fallback
-    # ---------------------------------------
+    # ---------------------------------------------
+    # METHOD 2
+    # Author ID fallback
+    # ---------------------------------------------
 
-    author_url = "https://api.openalex.org/authors"
+    status.write(
+        "⚠️ No papers found. Trying author profile search..."
+    )
+
+
+
+    author_url = (
+        "https://api.openalex.org/authors"
+    )
 
 
     author_params = {
@@ -153,7 +177,9 @@ def search_openalex(author):
         "search": author,
 
         "per_page":5
+
     }
+
 
 
     try:
@@ -165,26 +191,38 @@ def search_openalex(author):
         )
 
 
-        authors_found = r.json().get(
+        author_results = r.json().get(
             "results",
             []
         )
 
 
-        if len(authors_found)==0:
+        if len(author_results)==0:
 
             return []
 
 
 
-        author_id = authors_found[0]["id"].split("/")[-1]
+        author_id = (
+            author_results[0]["id"]
+            .split("/")[-1]
+        )
 
 
 
-        works_url = "https://api.openalex.org/works"
+        status.write(
+            f"👤 Found author profile. Searching publications..."
+        )
+
+
+
+        works_url = (
+            "https://api.openalex.org/works"
+        )
 
 
         works_params = {
+
 
             "filter":
             f"author.id:{author_id},"
@@ -192,8 +230,11 @@ def search_openalex(author):
             f"to_publication_date:{end_year}-12-31,"
             "open_access.is_oa:true",
 
+
             "per_page":200
+
         }
+
 
 
         r = requests.get(
@@ -203,10 +244,20 @@ def search_openalex(author):
         )
 
 
-        return r.json().get(
+        papers = r.json().get(
             "results",
             []
         )
+
+
+
+        status.write(
+            f"✅ Found {len(papers)} papers using author profile"
+        )
+
+
+        return papers
+
 
 
     except:
@@ -216,27 +267,117 @@ def search_openalex(author):
 
 
 # ======================================================
-# MAIN SEARCH
+# PDF FUNCTIONS
+# ======================================================
+
+
+def download_pdf(url):
+
+    try:
+
+        r = requests.get(
+            url,
+            timeout=60
+        )
+
+
+        if r.status_code == 200:
+
+            return r.content
+
+
+    except:
+
+        pass
+
+
+    return None
+
+
+
+
+def extract_text(pdf_bytes):
+
+    try:
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".pdf",
+            delete=False
+        ) as tmp:
+
+
+            tmp.write(pdf_bytes)
+
+            filename = tmp.name
+
+
+
+        doc = fitz.open(
+            filename
+        )
+
+
+        text=""
+
+
+        for page in doc:
+
+            text += page.get_text()
+
+
+
+        doc.close()
+
+
+        os.remove(
+            filename
+        )
+
+
+        return text.lower()
+
+
+
+    except:
+
+        return ""
+
+
+
+
+def find_keywords(text):
+
+    found=[]
+
+
+    for k in keywords:
+
+        if k.lower() in text:
+
+            found.append(k)
+
+
+    return found
+
+
+
+# ======================================================
+# RUN APP
 # ======================================================
 
 
 if st.button("🔍 Search Publications"):
 
 
-    if len(authors) == 0:
+    if len(authors)==0:
 
         st.error(
-            "Please enter at least one author name."
+            "Please enter an author."
         )
 
         st.stop()
 
 
-
-    results = []
-
-
-    # Status containers
 
     status = st.empty()
 
@@ -246,95 +387,71 @@ if st.button("🔍 Search Publications"):
 
 
 
-    # ==================================================
-    # STAGE 1: OPENALEX SEARCH
-    # ==================================================
-
-    status.write(
-        "🔎 Starting OpenAlex search..."
-    )
+    all_papers=[]
 
 
-    openalex_bar = st.progress(
+
+    # ---------------------------------------------
+    # SEARCH STAGE
+    # ---------------------------------------------
+
+    search_bar = st.progress(
         0,
-        text="Searching database..."
+        text="Searching OpenAlex..."
     )
 
 
-    all_papers = []
-
-
-
-    for index, author in enumerate(authors):
-
-
-        status.write(
-            f"🔎 Searching OpenAlex for: **{author}**"
-        )
-
-
-        message.write(
-            "⏳ Waiting for OpenAlex response..."
-        )
+    for i, author in enumerate(authors):
 
 
         papers = search_openalex(
-            author
-        )
-
-
-        message.write(
-            f"📚 Retrieved {len(papers)} publications for {author}"
+            author,
+            status
         )
 
 
 
-        for paper in papers:
+        for p in papers:
 
-            paper["author_name"] = author
+            p["author_name"]=author
 
             all_papers.append(
-                paper
+                p
             )
 
 
 
-        search_progress = (
-            index + 1
-        ) / len(authors)
+        progress = (
+            i+1
+        )/len(authors)
 
 
-        openalex_bar.progress(
-            search_progress,
-            text=
-            f"OpenAlex search {int(search_progress*100)}%"
+        search_bar.progress(
+            progress,
+            text=f"Search {int(progress*100)}%"
         )
 
 
 
-    openalex_bar.empty()
+    search_bar.empty()
 
 
 
-    total = len(
+    total=len(
         all_papers
     )
 
 
 
-    if total == 0:
+    if total==0:
 
         st.warning(
-            "No Open Access publications found."
+            "No papers found."
         )
 
         st.stop()
 
 
-
-    # ==================================================
-    # STAGE 2: PDF ANALYSIS
-    # ==================================================
 
     status.write(
         f"📚 Found {total} papers. Starting PDF analysis..."
@@ -342,8 +459,14 @@ if st.button("🔍 Search Publications"):
 
 
     message.write(
-        "⬇️ Downloading PDFs and searching full text..."
+        "⬇️ Downloading PDFs and searching text..."
     )
+
+
+
+    # ---------------------------------------------
+    # PDF STAGE
+    # ---------------------------------------------
 
 
     pdf_bar = st.progress(
@@ -352,8 +475,10 @@ if st.button("🔍 Search Publications"):
     )
 
 
+    results=[]
 
-    processed = 0
+
+    processed=0
 
 
 
@@ -361,7 +486,6 @@ if st.button("🔍 Search Publications"):
 
 
         processed += 1
-
 
 
         title = paper.get(
@@ -383,13 +507,7 @@ if st.button("🔍 Search Publications"):
 
 
 
-        status.write(
-            f"📄 Reading: {title[:120]}"
-        )
-
-
-
-        pdf = None
+        pdf=None
 
 
 
@@ -407,6 +525,11 @@ if st.button("🔍 Search Publications"):
 
 
         if pdf:
+
+
+            message.write(
+                f"📄 Reading PDF: {title[:100]}"
+            )
 
 
             pdf_bytes = download_pdf(
@@ -427,59 +550,53 @@ if st.button("🔍 Search Publications"):
                 )
 
 
-
-                if len(evidence) > 0:
+                if len(evidence)>0:
 
 
                     results.append({
 
-                        "Author": author,
+                        "Author":author,
 
-                        "Year": year,
+                        "Year":year,
 
-                        "Title": title,
+                        "Title":title,
 
                         "Evidence":
                         ", ".join(evidence),
 
-                        "PDF": pdf
+                        "PDF":pdf
 
                     })
 
 
 
-        percent = processed / total
-
+        progress = processed/total
 
 
         pdf_bar.progress(
-            percent,
-            text=
-            f"PDF processing {int(percent*100)}%"
+            progress,
+            text=f"PDF analysis {int(progress*100)}%"
         )
-
 
 
         progress_text.write(
-            f"Processed {processed}/{total} papers | "
-            f"Keyword matches found: {len(results)}"
+            f"Processed {processed}/{total} | "
+            f"Matches found: {len(results)}"
         )
 
 
 
-    # ==================================================
-    # RESULTS
-    # ==================================================
+    # ---------------------------------------------
+    # OUTPUT
+    # ---------------------------------------------
 
 
-    df = pd.DataFrame(
+    df=pd.DataFrame(
         results
     )
 
 
-
-    if len(df) == 0:
-
+    if len(df)==0:
 
         st.warning(
             "No keyword matches found."
@@ -487,7 +604,6 @@ if st.button("🔍 Search Publications"):
 
 
     else:
-
 
         st.success(
             f"Finished. Found {len(df)} matching papers."
@@ -501,7 +617,7 @@ if st.button("🔍 Search Publications"):
 
 
 
-        output = BytesIO()
+        output=BytesIO()
 
 
 
@@ -514,21 +630,19 @@ if st.button("🔍 Search Publications"):
             df.to_excel(
                 writer,
                 index=False,
-                sheet_name="Keyword Matches"
+                sheet_name="Results"
             )
 
 
 
         st.download_button(
 
-            label="📥 Download Excel Report",
+            "📥 Download Excel",
 
-            data=output.getvalue(),
+            output.getvalue(),
 
-            file_name=
-            "BMC_MRI_publication_search.xlsx",
+            "Publication_Search.xlsx",
 
-            mime=
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         )
