@@ -6,16 +6,24 @@ import tempfile
 import os
 from io import BytesIO
 
+
+# --------------------------------------------------------
+# PAGE SETTINGS
+# --------------------------------------------------------
+
 st.set_page_config(
     page_title="Publication Keyword Search",
     layout="wide"
 )
 
+
 st.title("📚 Publication Keyword Search")
+
 st.write(
     "Search OpenAlex publications, download Open Access PDFs, "
     "and find evidence of selected keywords."
 )
+
 
 # --------------------------------------------------------
 # USER INPUTS
@@ -28,21 +36,26 @@ authors_text = st.text_area(
     height=120
 )
 
+
 col1, col2 = st.columns(2)
 
 with col1:
+
     start_year = st.number_input(
         "Start Year",
         value=2025,
         step=1
     )
 
+
 with col2:
+
     end_year = st.number_input(
         "End Year",
         value=2026,
         step=1
     )
+
 
 keywords_text = st.text_area(
     "Keywords (one per line)",
@@ -57,13 +70,6 @@ Tesla""",
     height=150
 )
 
-authors_text = st.text_area(
-    "Authors (one per line)",
-    "",
-    placeholder="Enter author names, one per line",
-    height=120
-)
-
 
 authors = [
     a.strip()
@@ -72,8 +78,19 @@ authors = [
 ]
 
 
+keywords = [
+    k.strip()
+    for k in keywords_text.splitlines()
+    if k.strip()
+]
+
+
 if len(authors) == 0:
-    st.info("Enter author names to start searching.")
+
+    st.info(
+        "Enter author names to start searching."
+    )
+
 
 # --------------------------------------------------------
 # FUNCTIONS
@@ -83,49 +100,65 @@ def search_openalex(author):
 
     url = "https://api.openalex.org/works"
 
+
     params = {
+
         "search": author,
+
         "filter":
         f"from_publication_date:{start_year}-01-01,"
         f"to_publication_date:{end_year}-12-31,"
         "open_access.is_oa:true",
+
         "per_page": 200
+
     }
+
 
     try:
 
-        r = requests.get(
+        response = requests.get(
             url,
             params=params,
             timeout=60
         )
 
-        r.raise_for_status()
+        response.raise_for_status()
 
-        return r.json()["results"]
+        return response.json().get(
+            "results",
+            []
+        )
+
 
     except:
 
         return []
 
 
+
 def download_pdf(url):
 
     try:
 
-        r = requests.get(
+        response = requests.get(
             url,
             timeout=60
         )
 
-        if r.status_code == 200:
 
-            return r.content
+        if response.status_code == 200:
+
+            return response.content
+
 
     except:
+
         pass
 
+
     return None
+
 
 
 def extract_text(pdf_bytes):
@@ -139,40 +172,48 @@ def extract_text(pdf_bytes):
 
             tmp.write(pdf_bytes)
 
-            tmp.flush()
-
             filename = tmp.name
+
 
         doc = fitz.open(filename)
 
+
         text = ""
+
 
         for page in doc:
 
             text += page.get_text()
 
+
         doc.close()
 
         os.remove(filename)
 
+
         return text.lower()
+
 
     except:
 
         return ""
 
 
+
 def find_keywords(text):
 
     found = []
 
-    for k in keywords:
 
-        if k.lower() in text:
+    for keyword in keywords:
 
-            found.append(k)
+        if keyword.lower() in text:
+
+            found.append(keyword)
+
 
     return found
+
 
 
 # --------------------------------------------------------
@@ -181,92 +222,174 @@ def find_keywords(text):
 
 if st.button("🔍 Search Publications"):
 
+
+    if len(authors) == 0:
+
+        st.error(
+            "Please enter at least one author name."
+        )
+
+        st.stop()
+
+
+
     results = []
+
 
     progress = st.progress(0)
 
+
     status = st.empty()
+
 
     total_authors = len(authors)
 
-    for a_index, author in enumerate(authors):
 
-        status.write(f"Searching **{author}**...")
+
+    for index, author in enumerate(authors):
+
+
+        status.write(
+            f"Searching **{author}**..."
+        )
+
 
         papers = search_openalex(author)
 
+
+
         for paper in papers:
 
-            title = paper.get("title", "")
+
+            title = paper.get(
+                "title",
+                ""
+            )
+
 
             year = paper.get(
                 "publication_year",
                 ""
             )
 
+
             pdf = None
 
-            if paper.get("best_oa_location"):
 
-                pdf = paper["best_oa_location"].get(
+            if paper.get(
+                "best_oa_location"
+            ):
+
+
+                pdf = paper[
+                    "best_oa_location"
+                ].get(
                     "pdf_url"
                 )
 
+
+
             if pdf is None:
+
                 continue
+
+
 
             pdf_bytes = download_pdf(pdf)
 
+
+
             if pdf_bytes is None:
+
                 continue
 
-            text = extract_text(pdf_bytes)
 
-            evidence = find_keywords(text)
+
+            text = extract_text(
+                pdf_bytes
+            )
+
+
+            evidence = find_keywords(
+                text
+            )
+
+
 
             if len(evidence) > 0:
+
 
                 results.append({
 
                     "Author": author,
+
                     "Year": year,
+
                     "Title": title,
+
                     "Evidence": ", ".join(evidence),
+
                     "PDF": pdf
 
                 })
 
-        progress.progress((a_index + 1) / total_authors)
+
+
+        progress.progress(
+            (index + 1) / total_authors
+        )
+
+
 
     df = pd.DataFrame(results)
 
-    st.success(f"Found {len(df)} matching papers.")
 
-    st.dataframe(
-        df,
-        use_container_width=True
-    )
 
-    output = BytesIO()
+    if len(df) == 0:
 
-    with pd.ExcelWriter(
-        output,
-        engine="openpyxl"
-    ) as writer:
-
-        df.to_excel(
-            writer,
-            index=False
+        st.warning(
+            "No matching publications found."
         )
 
-    st.download_button(
+    else:
 
-        label="📥 Download Excel",
+        st.success(
+            f"Found {len(df)} matching papers."
+        )
 
-        data=output.getvalue(),
 
-        file_name="Publication_Search.xlsx",
+        st.dataframe(
+            df,
+            use_container_width=True
+        )
 
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-    )
+
+        output = BytesIO()
+
+
+        with pd.ExcelWriter(
+            output,
+            engine="openpyxl"
+        ) as writer:
+
+
+            df.to_excel(
+                writer,
+                index=False
+            )
+
+
+
+        st.download_button(
+
+            label="📥 Download Excel",
+
+            data=output.getvalue(),
+
+            file_name="Publication_Search.xlsx",
+
+            mime=
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+        )
