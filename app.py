@@ -44,7 +44,7 @@ with col1:
 
     start_year = st.number_input(
         "Start Year",
-        value=2025,
+        value=2019,
         step=1
     )
 
@@ -56,7 +56,6 @@ with col2:
         value=2026,
         step=1
     )
-
 
 
 keywords_text = st.text_area(
@@ -73,20 +72,18 @@ Tesla""",
 )
 
 
-
 authors = [
-    a.strip()
-    for a in authors_text.splitlines()
-    if a.strip()
+    x.strip()
+    for x in authors_text.splitlines()
+    if x.strip()
 ]
 
 
 keywords = [
-    k.strip()
-    for k in keywords_text.splitlines()
-    if k.strip()
+    x.strip()
+    for x in keywords_text.splitlines()
+    if x.strip()
 ]
-
 
 
 if len(authors) == 0:
@@ -96,41 +93,86 @@ if len(authors) == 0:
     )
 
 
-
 # --------------------------------------------------------
-# FUNCTIONS
+# OPENALEX AUTHOR SEARCH
 # --------------------------------------------------------
 
-def search_openalex(author):
+def get_author_id(author_name):
 
-    url = "https://api.openalex.org/works"
+    url = "https://api.openalex.org/authors"
 
 
     params = {
 
-        "search": author,
+        "search": author_name,
 
-        "filter":
-        f"from_publication_date:{start_year}-01-01,"
-        f"to_publication_date:{end_year}-12-31,"
-        "open_access.is_oa:true",
-
-        "per_page": 200
+        "per_page": 5
 
     }
 
 
     try:
 
-        response = requests.get(
+        r = requests.get(
+            url,
+            params=params,
+            timeout=30
+        )
+
+        data = r.json()
+
+
+        results = data.get(
+            "results",
+            []
+        )
+
+
+        if len(results) > 0:
+
+            return results[0]["id"]
+
+
+    except:
+
+        pass
+
+
+    return None
+
+
+
+# --------------------------------------------------------
+# SEARCH AUTHOR PAPERS
+# --------------------------------------------------------
+
+def search_author_papers(author_id):
+
+    url = "https://api.openalex.org/works"
+
+
+    params = {
+
+        "filter":
+        f"author.id:{author_id},"
+        f"from_publication_date:{start_year}-01-01,"
+        f"to_publication_date:{end_year}-12-31,"
+        "open_access.is_oa:true",
+
+        "per_page":200
+
+    }
+
+
+    try:
+
+        r = requests.get(
             url,
             params=params,
             timeout=60
         )
 
-        response.raise_for_status()
-
-        return response.json().get(
+        return r.json().get(
             "results",
             []
         )
@@ -142,19 +184,23 @@ def search_openalex(author):
 
 
 
+# --------------------------------------------------------
+# PDF FUNCTIONS
+# --------------------------------------------------------
+
 def download_pdf(url):
 
     try:
 
-        response = requests.get(
+        r = requests.get(
             url,
             timeout=60
         )
 
 
-        if response.status_code == 200:
+        if r.status_code == 200:
 
-            return response.content
+            return r.content
 
 
     except:
@@ -181,7 +227,9 @@ def extract_text(pdf_bytes):
 
 
 
-        doc = fitz.open(filename)
+        doc = fitz.open(
+            filename
+        )
 
 
         text = ""
@@ -196,7 +244,9 @@ def extract_text(pdf_bytes):
         doc.close()
 
 
-        os.remove(filename)
+        os.remove(
+            filename
+        )
 
 
         return text.lower()
@@ -211,87 +261,137 @@ def extract_text(pdf_bytes):
 
 def find_keywords(text):
 
-    found = []
+    found=[]
 
 
-    for keyword in keywords:
+    for k in keywords:
 
-        if keyword.lower() in text:
+        if k.lower() in text:
 
-            found.append(keyword)
-
+            found.append(k)
 
 
     return found
 
+
+
 # --------------------------------------------------------
-# SEARCH BUTTON
+# RUN SEARCH
 # --------------------------------------------------------
 
 if st.button("🔍 Search Publications"):
 
 
-    if len(authors) == 0:
+    if len(authors)==0:
 
         st.error(
-            "Please enter at least one author name."
+            "Please enter an author name."
         )
 
         st.stop()
 
 
 
-    all_results = []
+    all_results=[]
 
-    matched_results = []
+    match_results=[]
 
 
 
-    # Progress elements
-
-    progress_bar = st.progress(
-        0,
-        text="Starting search..."
-    )
+    # ------------------------------
+    # AUTHOR SEARCH PROGRESS
+    # ------------------------------
 
     status = st.empty()
 
-    counter = st.empty()
-
-
-
-    # ----------------------------------------------------
-    # GET PUBLICATIONS
-    # ----------------------------------------------------
-
-    status.write(
-        "🔎 Searching OpenAlex database..."
+    progress = st.progress(
+        0,
+        text="Starting..."
     )
 
 
-    author_papers = {}
 
-    total_papers = 0
-
-
-
-    for author in authors:
-
-
-        papers = search_openalex(author)
-
-
-        author_papers[author] = papers
-
-
-        total_papers += len(papers)
+    author_ids=[]
 
 
 
-    if total_papers == 0:
+    for i, author in enumerate(authors):
+
+
+        status.write(
+            f"🔎 Finding author: {author}"
+        )
+
+
+        author_id = get_author_id(
+            author
+        )
+
+
+        if author_id:
+
+            author_ids.append(
+                (
+                    author,
+                    author_id
+                )
+            )
+
+
+        progress.progress(
+            (i+1)/len(authors),
+            text=
+            f"Author search {int((i+1)/len(authors)*100)}%"
+        )
+
+
+
+    if len(author_ids)==0:
+
+        st.error(
+            "No OpenAlex authors found."
+        )
+
+        st.stop()
+
+
+
+    # ------------------------------
+    # PAPER COLLECTION
+    # ------------------------------
+
+    status.write(
+        "📚 Collecting publications..."
+    )
+
+
+    papers=[]
+
+
+    for author, author_id in author_ids:
+
+
+        author_papers = search_author_papers(
+            author_id
+        )
+
+
+        for p in author_papers:
+
+            p["search_author"]=author
+
+            papers.append(p)
+
+
+
+    total=len(papers)
+
+
+
+    if total==0:
 
         st.warning(
-            "No publications found for the selected authors and years."
+            "No publications found."
         )
 
         st.stop()
@@ -299,187 +399,170 @@ if st.button("🔍 Search Publications"):
 
 
     status.write(
-        f"Found {total_papers} Open Access papers. Checking PDFs..."
+        f"Found {total} papers. Checking PDFs..."
     )
 
 
 
-    processed = 0
+    # ------------------------------
+    # PDF PROGRESS
+    # ------------------------------
+
+    processed=0
+
+
+    progress_bar=st.progress(
+        0,
+        text="Checking papers..."
+    )
+
+
+    counter=st.empty()
 
 
 
-    # ----------------------------------------------------
-    # PROCESS PAPERS
-    # ----------------------------------------------------
-
-    for author in authors:
+    for paper in papers:
 
 
-        papers = author_papers[author]
+        processed +=1
 
 
-        for paper in papers:
+        title=paper.get(
+            "title",
+            ""
+        )
 
 
-
-            processed += 1
-
-
-            progress = processed / total_papers
-
-            percentage = int(progress * 100)
+        year=paper.get(
+            "publication_year",
+            ""
+        )
 
 
-
-            # Update progress BEFORE processing
-
-            progress_bar.progress(
-                progress,
-                text=f"Processing papers... {percentage}%"
-            )
+        author=paper.get(
+            "search_author",
+            ""
+        )
 
 
-
-            title = paper.get(
-                "title",
-                ""
-            )
+        status.write(
+            f"📄 Checking: {title[:100]}"
+        )
 
 
-            year = paper.get(
-                "publication_year",
-                ""
-            )
+        pdf=None
 
 
 
-            status.write(
-                f"📄 Checking: {title[:120]}"
-            )
+        if paper.get(
+            "best_oa_location"
+        ):
 
-
-            pdf = None
-
-
-
-            if paper.get(
+            pdf=paper[
                 "best_oa_location"
-            ):
+            ].get(
+                "pdf_url"
+            )
 
 
-                pdf = paper[
-                    "best_oa_location"
-                ].get(
-                    "pdf_url"
+
+        evidence=[]
+
+
+
+        if pdf:
+
+
+            pdf_bytes=download_pdf(
+                pdf
+            )
+
+
+            if pdf_bytes:
+
+
+                text=extract_text(
+                    pdf_bytes
+                )
+
+
+                evidence=find_keywords(
+                    text
                 )
 
 
 
-            evidence = []
+        result={
+
+            "Author":author,
+
+            "Year":year,
+
+            "Title":title,
+
+            "Keyword Match":
+            "Yes" if evidence else "No",
+
+            "Evidence Found":
+            ", ".join(evidence),
+
+            "PDF":pdf
+
+        }
 
 
-
-            # Download PDF and search
-
-            if pdf:
-
-
-                pdf_bytes = download_pdf(
-                    pdf
-                )
+        all_results.append(
+            result
+        )
 
 
+        if evidence:
 
-                if pdf_bytes:
-
-
-                    text = extract_text(
-                        pdf_bytes
-                    )
-
-
-                    evidence = find_keywords(
-                        text
-                    )
-
-
-
-            # Save ALL papers checked
-
-            result = {
-
-                "Author": author,
-
-                "Year": year,
-
-                "Title": title,
-
-                "Keyword Match":
-                    "Yes" if evidence else "No",
-
-                "Evidence Found":
-                    ", ".join(evidence),
-
-                "PDF":
-                    pdf
-
-            }
-
-
-
-            all_results.append(
+            match_results.append(
                 result
             )
 
 
 
-            if evidence:
-
-                matched_results.append(
-                    result
-                )
+        percent=int(
+            processed/total*100
+        )
 
 
-
-            counter.write(
-                f"Progress: {percentage}% | "
-                f"Processed {processed}/{total_papers} papers | "
-                f"Matches found: {len(matched_results)}"
-            )
+        progress_bar.progress(
+            processed/total,
+            text=f"Processing {percent}%"
+        )
 
 
-
-
-    # ----------------------------------------------------
-    # RESULTS
-    # ----------------------------------------------------
-
-
-    progress_bar.progress(
-        1.0,
-        text="Completed 100%"
-    )
-
-
-    status.success(
-        "✅ Search completed!"
-    )
+        counter.write(
+            f"{processed}/{total} papers checked | "
+            f"{len(match_results)} matches found"
+        )
 
 
 
-    all_df = pd.DataFrame(
+    # ------------------------------
+    # OUTPUT
+    # ------------------------------
+
+    all_df=pd.DataFrame(
         all_results
     )
 
 
-    match_df = pd.DataFrame(
-        matched_results
+    match_df=pd.DataFrame(
+        match_results
     )
 
 
+    st.success(
+        f"Completed. Found {len(match_df)} matching papers."
+    )
+
 
     st.subheader(
-        "📊 All Checked Publications"
+        "All Publications Checked"
     )
 
 
@@ -489,66 +572,52 @@ if st.button("🔍 Search Publications"):
     )
 
 
-
     st.subheader(
-        "🎯 Matching Publications"
+        "Keyword Matches"
     )
 
 
-    if len(match_df) > 0:
-
-        st.dataframe(
-            match_df,
-            use_container_width=True
-        )
-
-    else:
-
-        st.info(
-            "No keyword matches found."
-        )
+    st.dataframe(
+        match_df,
+        use_container_width=True
+    )
 
 
 
-    # ----------------------------------------------------
-    # EXCEL DOWNLOADS
-    # ----------------------------------------------------
+    # Excel
 
-
-    excel_all = BytesIO()
+    output=BytesIO()
 
 
     with pd.ExcelWriter(
-        excel_all,
+        output,
         engine="openpyxl"
     ) as writer:
 
 
         all_df.to_excel(
             writer,
-            index=False,
-            sheet_name="All Publications"
+            sheet_name="All Publications",
+            index=False
         )
 
 
         match_df.to_excel(
             writer,
-            index=False,
-            sheet_name="Keyword Matches"
+            sheet_name="Keyword Matches",
+            index=False
         )
 
 
 
     st.download_button(
 
-        label="📥 Download Complete Excel Report",
+        "📥 Download Excel Report",
 
-        data=excel_all.getvalue(),
+        output.getvalue(),
 
-        file_name=
-        "Publication_Keyword_Search_Report.xlsx",
+        "Publication_Search_Report.xlsx",
 
-        mime=
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     )
