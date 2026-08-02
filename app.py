@@ -39,6 +39,7 @@ authors_text = st.text_area(
 
 col1, col2 = st.columns(2)
 
+
 with col1:
 
     start_year = st.number_input(
@@ -69,6 +70,7 @@ Siemens 3T
 Tesla""",
     height=150
 )
+
 
 
 authors = [
@@ -188,6 +190,7 @@ def extract_text(pdf_bytes):
 
         doc.close()
 
+
         os.remove(filename)
 
 
@@ -236,29 +239,81 @@ if st.button("🔍 Search Publications"):
     results = []
 
 
-    progress = st.progress(0)
+    progress_bar = st.progress(0)
 
 
     status = st.empty()
 
 
-    total_authors = len(authors)
+    counter = st.empty()
 
 
 
-    for index, author in enumerate(authors):
+    # ---------------------------------------------
+    # GET ALL PAPERS FIRST
+    # ---------------------------------------------
+
+    status.write(
+        "Collecting publications from OpenAlex..."
+    )
 
 
-        status.write(
-            f"Searching **{author}**..."
-        )
+    author_papers = {}
+
+
+    total_papers = 0
+
+
+
+    for author in authors:
 
 
         papers = search_openalex(author)
 
 
+        author_papers[author] = papers
+
+
+        total_papers += len(papers)
+
+
+
+    if total_papers == 0:
+
+        st.warning(
+            "No publications found."
+        )
+
+        st.stop()
+
+
+
+    status.write(
+        f"Found {total_papers} publications. Checking PDFs..."
+    )
+
+
+
+    processed = 0
+
+
+
+    # ---------------------------------------------
+    # CHECK PAPERS
+    # ---------------------------------------------
+
+    for author in authors:
+
+
+        papers = author_papers[author]
+
+
 
         for paper in papers:
+
+
+            processed += 1
+
 
 
             title = paper.get(
@@ -273,7 +328,9 @@ if st.button("🔍 Search Publications"):
             )
 
 
+
             pdf = None
+
 
 
             if paper.get(
@@ -289,57 +346,66 @@ if st.button("🔍 Search Publications"):
 
 
 
-            if pdf is None:
-
-                continue
+            if pdf:
 
 
-
-            pdf_bytes = download_pdf(pdf)
+                pdf_bytes = download_pdf(pdf)
 
 
 
-            if pdf_bytes is None:
-
-                continue
+                if pdf_bytes:
 
 
+                    text = extract_text(
+                        pdf_bytes
+                    )
 
-            text = extract_text(
-                pdf_bytes
+
+                    evidence = find_keywords(
+                        text
+                    )
+
+
+
+                    if len(evidence) > 0:
+
+
+                        results.append({
+
+                            "Author": author,
+
+                            "Year": year,
+
+                            "Title": title,
+
+                            "Evidence": ", ".join(evidence),
+
+                            "PDF": pdf
+
+                        })
+
+
+
+            # UPDATE PROGRESS
+
+            progress = processed / total_papers
+
+
+            progress_bar.progress(
+                progress
             )
 
 
-            evidence = find_keywords(
-                text
+            counter.write(
+                f"Processed {processed}/{total_papers} papers | "
+                f"Matches found: {len(results)}"
             )
 
 
 
-            if len(evidence) > 0:
-
-
-                results.append({
-
-                    "Author": author,
-
-                    "Year": year,
-
-                    "Title": title,
-
-                    "Evidence": ", ".join(evidence),
-
-                    "PDF": pdf
-
-                })
-
-
-
-        progress.progress(
-            (index + 1) / total_authors
-        )
-
-
+    # ---------------------------------------------
+    # OUTPUT
+    # ---------------------------------------------
 
     df = pd.DataFrame(results)
 
@@ -351,10 +417,11 @@ if st.button("🔍 Search Publications"):
             "No matching publications found."
         )
 
+
     else:
 
         st.success(
-            f"Found {len(df)} matching papers."
+            f"Completed! Found {len(df)} matching papers."
         )
 
 
@@ -366,6 +433,7 @@ if st.button("🔍 Search Publications"):
 
 
         output = BytesIO()
+
 
 
         with pd.ExcelWriter(
