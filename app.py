@@ -39,9 +39,9 @@ with st.sidebar:
     st.header("Search Settings")
 
 
-    AUTHOR_NAME = st.text_input(
-        "Author name",
-        "Yaser Hadi Gholami"
+   AUTHOR_NAME = st.text_input(
+    "Author name",
+    placeholder="Enter author full name"
     )
 
 
