@@ -40,9 +40,9 @@ with st.sidebar:
 
 
    AUTHOR_NAME = st.text_input(
-    "Author name",
-    placeholder="Enter author full name"
-    )
+        "Author name",
+        placeholder="Enter author full name"
+        )
 
 
     ORCID = st.text_input(
