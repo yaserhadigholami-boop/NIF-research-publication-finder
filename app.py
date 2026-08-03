@@ -1,246 +1,322 @@
 import streamlit as st
-import requests
 import pandas as pd
-import fitz
-import tempfile
+import requests
+import re
+import difflib
+import io
 import os
-from io import BytesIO
+import time
+
+from bs4 import BeautifulSoup
+import fitz
 
 
 # ======================================================
-# PAGE SETTINGS
+# STREAMLIT SETTINGS
 # ======================================================
 
 st.set_page_config(
-    page_title="Publication Keyword Search",
+    page_title="Publication Finder",
     layout="wide"
 )
 
 
-st.title("📚 Publication Keyword Search")
-
+st.title("📚 Publication Finder v2.0")
 st.write(
-    "Search OpenAlex publications, download Open Access PDFs, "
-    "and find evidence of selected keywords."
+    "Search publications by author, year range and keywords"
 )
 
 
 
 # ======================================================
-# INPUTS
+# USER INPUT
 # ======================================================
 
-authors_text = st.text_area(
-    "Authors (one per line)",
-    "",
-    placeholder="Enter author names, one per line",
-    height=120
-)
+
+with st.sidebar:
 
 
-col1, col2 = st.columns(2)
+    st.header("Search Settings")
 
 
-with col1:
-    start_year = st.number_input(
-        "Start Year",
-        value=2011,
-        step=1
+    AUTHOR_NAME = st.text_input(
+        "Author name",
+        "Yaser Hadi Gholami"
     )
 
 
-with col2:
-    end_year = st.number_input(
-        "End Year",
-        value=2026,
-        step=1
+    ORCID = st.text_input(
+        "ORCID (optional)",
+        ""
+    )
+
+
+    INSTITUTION = st.text_input(
+        "Institution",
+        "University of Sydney"
+    )
+
+
+    COUNTRY = st.text_input(
+        "Country",
+        "Australia"
     )
 
 
 
-keywords_text = st.text_area(
-    "Keywords (one per line)",
-    """Brain and Mind
+    START_YEAR, END_YEAR = st.slider(
+        "Publication year range",
+        1900,
+        2026,
+        (2011,2026)
+    )
+
+
+
+    keyword_text = st.text_area(
+        "Keywords (one per line)",
+        """
+Brain and Mind
 BMC
 Sydney Imaging
 University of Sydney MRI
 Siemens 3T
 3T
 3 Tesla
-Tesla""",
-    height=150
-)
+MRI
+PET-MR
+PET MRI
+nanoparticle
+radiolabel
+"""
+    )
+
+
+    KEYWORDS = [
+
+        x.strip()
+
+        for x in keyword_text.split("\n")
+
+        if x.strip()
+
+    ]
 
 
 
-authors = [
-    x.strip()
-    for x in authors_text.splitlines()
-    if x.strip()
-]
-
-
-keywords = [
-    x.strip()
-    for x in keywords_text.splitlines()
-    if x.strip()
-]
+    run_button = st.button(
+        "🔍 Search Publications"
+    )
 
 
 
 # ======================================================
-# AUTHOR SEARCH
+# FUNCTIONS
 # ======================================================
 
 
-def find_best_author(author_name, status):
+def clean_name(name):
+
+    name=name.lower()
+
+    name=re.sub(
+        r"[^a-z ]",
+        "",
+        name
+    )
+
+    return name.strip()
 
 
-    url = "https://api.openalex.org/authors"
+
+def name_score(target,candidate):
+
+    return int(
+
+        difflib.SequenceMatcher(
+
+            None,
+
+            clean_name(target),
+
+            clean_name(candidate)
+
+        ).ratio()*100
+
+    )
 
 
-    params = {
 
-        "search": author_name,
 
-        "per_page":10
+def search_openalex_authors(name):
+
+    url="https://api.openalex.org/authors"
+
+
+    params={
+
+        "search":name,
+
+        "per_page":25
 
     }
 
 
-    try:
+    r=requests.get(
 
-        r = requests.get(
-            url,
-            params=params,
-            timeout=60
+        url,
+
+        params=params,
+
+        timeout=60
+
+    )
+
+
+    return r.json().get(
+        "results",
+        []
+    )
+
+
+
+
+def score_author(author):
+
+
+    score=0
+
+
+    name=author.get(
+        "display_name",
+        ""
+    )
+
+
+    score += name_score(
+        AUTHOR_NAME,
+        name
+    )
+
+
+    if ORCID:
+
+
+        if author.get("orcid"):
+
+
+            if ORCID.lower() in author["orcid"].lower():
+
+                score +=100
+
+
+
+    institutions=[]
+
+
+    for inst in author.get(
+        "last_known_institutions",
+        []
+    ):
+
+
+        institutions.append(
+
+            inst.get(
+                "display_name",
+                ""
+            ).lower()
+
         )
 
 
-        results = r.json().get(
-            "results",
-            []
-        )
+    text=" ".join(institutions)
 
 
-    except:
+
+    if INSTITUTION.lower() in text:
+
+        score+=40
+
+
+
+    if "sydney" in text:
+
+        score+=20
+
+
+
+    return score
+
+
+
+
+
+def find_best_author(progress,status):
+
+
+    status.info(
+        "Searching OpenAlex author profiles..."
+    )
+
+
+    candidates=search_openalex_authors(
+        AUTHOR_NAME
+    )
+
+
+    if len(candidates)==0:
 
         return None
 
 
 
-    if len(results)==0:
-
-        return None
+    ranked=[]
 
 
-
-    # --------------------------------------
-    # Score author profiles
-    # --------------------------------------
-
-    scored=[]
+    for i,a in enumerate(candidates):
 
 
-    for author in results:
+        ranked.append(
 
-
-        score=0
-
-
-        name = author.get(
-            "display_name",
-            ""
-        )
-
-
-        works = author.get(
-            "works_count",
-            0
-        )
-
-
-        # affiliations
-
-        institutions = author.get(
-            "last_known_institutions",
-            []
-        )
-
-
-        inst_text=""
-
-
-        for inst in institutions:
-
-            inst_text += (
-                inst.get("display_name","")
-                .lower()
-            )
-
-
-
-        if "sydney" in inst_text:
-
-            score += 100
-
-
-        if "australia" in str(
-            author
-        ).lower():
-
-            score += 50
-
-
-        score += min(
-            works,
-            50
-        )
-
-
-
-        scored.append(
             (
-                score,
-                author
+                score_author(a),
+                a
             )
+
         )
 
 
+        progress.progress(
+            int((i+1)/len(candidates)*20)
+        )
 
-    scored.sort(
-        reverse=True,
-        key=lambda x:x[0]
+
+    ranked.sort(
+        key=lambda x:x[0],
+        reverse=True
     )
 
 
-
-    best = scored[0][1]
-
+    return ranked[0][1]
 
 
-    status.write(
-        f"👤 Selected OpenAlex profile: "
-        f"{best.get('display_name','')}"
+
+
+
+
+def get_openalex_works(author_id,progress,status):
+
+
+    status.info(
+        "Searching OpenAlex publications..."
     )
 
 
-    status.write(
-        f"📚 Publications indexed: "
-        f"{best.get('works_count',0)}"
+    author_id=author_id.replace(
+        "https://openalex.org/",
+        ""
     )
-
-
-    return best["id"].split("/")[-1]
-
-
-
-# ======================================================
-# GET AUTHOR PAPERS
-# ======================================================
-
-
-def search_author_papers(author_id):
 
 
     url="https://api.openalex.org/works"
@@ -248,15 +324,62 @@ def search_author_papers(author_id):
 
     params={
 
+        "filter":
+
+        f"author.id:{author_id},"
+        f"from_publication_date:{START_YEAR}-01-01,"
+        f"to_publication_date:{END_YEAR}-12-31",
+
+
+        "per_page":200,
+
+        "sort":
+        "publication_date:desc"
+
+    }
+
+
+
+    r=requests.get(
+        url,
+        params=params
+    )
+
+
+    return r.json().get(
+        "results",
+        []
+    )
+
+
+
+
+
+
+
+def get_crossref_works():
+
+    status="Searching Crossref"
+
+
+    url="https://api.crossref.org/works"
+
+
+    params={
+
+
+        "query.author":
+        AUTHOR_NAME,
+
+
+        "rows":
+        100,
+
 
         "filter":
-        f"author.id:{author_id},"
-        f"from_publication_date:{start_year}-01-01,"
-        f"to_publication_date:{end_year}-12-31,"
-        "open_access.is_oa:true",
 
-
-        "per_page":200
+        f"from-pub-date:{START_YEAR}-01-01,"
+        f"until-pub-date:{END_YEAR}-12-31"
 
     }
 
@@ -270,10 +393,7 @@ def search_author_papers(author_id):
         )
 
 
-        return r.json().get(
-            "results",
-            []
-        )
+        return r.json()["message"]["items"]
 
 
     except:
@@ -282,354 +402,309 @@ def search_author_papers(author_id):
 
 
 
-# ======================================================
-# PDF FUNCTIONS
-# ======================================================
-
-
-def download_pdf(url):
-
-    try:
-
-        r=requests.get(
-            url,
-            timeout=60
-        )
-
-
-        if r.status_code==200:
-
-            return r.content
-
-
-    except:
-
-        pass
-
-
-    return None
 
 
 
 
-def extract_text(pdf_bytes):
-
-    try:
-
-        with tempfile.NamedTemporaryFile(
-            suffix=".pdf",
-            delete=False
-        ) as tmp:
-
-            tmp.write(pdf_bytes)
-
-            filename=tmp.name
+def extract_openalex_abstract(work):
 
 
-
-        doc=fitz.open(
-            filename
-        )
-
-
-        text=""
+    inv=work.get(
+        "abstract_inverted_index"
+    )
 
 
-        for page in doc:
-
-            text += page.get_text()
-
-
-
-        doc.close()
-
-
-        os.remove(
-            filename
-        )
-
-
-        return text.lower()
-
-
-    except:
+    if not inv:
 
         return ""
 
 
+    words=[]
 
 
-def find_keywords(text):
+    for word,pos in inv.items():
+
+        for p in pos:
+
+            words.append(
+                (
+                    p,
+                    word
+                )
+            )
+
+
+    words.sort()
+
+
+    return " ".join(
+
+        [
+            x[1]
+            for x in words
+        ]
+
+    )
+
+
+
+
+
+
+def keyword_search(text):
+
 
     found=[]
 
 
-    for k in keywords:
+    evidence=[]
+
+
+    text=text.lower()
+
+
+    sentences=re.split(
+        r"[.!?]",
+        text
+    )
+
+
+
+    for k in KEYWORDS:
+
 
         if k.lower() in text:
+
 
             found.append(k)
 
 
-    return found
+            for s in sentences:
+
+
+                if k.lower() in s:
+
+                    evidence.append(
+                        s.strip()
+                    )
+
+                    break
 
 
 
-# ======================================================
-# RUN
-# ======================================================
-
-
-if st.button("🔍 Search Publications"):
-
-
-    if len(authors)==0:
-
-        st.error(
-            "Enter an author name."
-        )
-
-        st.stop()
+    return found,evidence
 
 
 
-    status=st.empty()
-
-    message=st.empty()
-
-    progress_text=st.empty()
 
 
 
-    all_papers=[]
-
-
-
-    # --------------------------------------
-    # AUTHOR SEARCH
-    # --------------------------------------
-
-    for author in authors:
-
-
-        status.write(
-            f"🔎 Finding author profile: {author}"
-        )
-
-
-        author_id=find_best_author(
-            author,
-            status
-        )
-
-
-        if author_id is None:
-
-            st.warning(
-                f"No author profile found for {author}"
-            )
-
-            continue
-
-
-
-        message.write(
-            "📚 Retrieving publications..."
-        )
-
-
-        papers=search_author_papers(
-            author_id
-        )
-
-
-        status.write(
-            f"Found {len(papers)} publications"
-        )
-
-
-        for p in papers:
-
-            p["author_name"]=author
-
-            all_papers.append(
-                p
-            )
-
-
-
-    total=len(
-        all_papers
-    )
-
-
-
-    if total==0:
-
-        st.error(
-            "No publications found."
-        )
-
-        st.stop()
-
-
-
-    # --------------------------------------
-    # PDF SEARCH
-    # --------------------------------------
-
-    status.write(
-        f"📄 Analysing {total} papers..."
-    )
-
-
-    pdf_bar=st.progress(
-        0
-    )
+def analyse_papers(papers,progress,status):
 
 
     results=[]
 
 
-    for i,paper in enumerate(all_papers):
+    total=len(papers)
 
 
-        title=paper.get(
-            "title",
-            ""
+
+    for i,paper in enumerate(papers):
+
+
+        status.info(
+
+            f"Analysing paper {i+1}/{total}"
+
         )
 
 
-        pdf=None
-
-
-        if paper.get(
-            "best_oa_location"
-        ):
-
-
-            pdf=paper[
-                "best_oa_location"
-            ].get(
-                "pdf_url"
-            )
+        text=extract_openalex_abstract(
+            paper
+        )
 
 
 
-        if pdf:
+        keywords,evidence=keyword_search(
+            text
+        )
 
 
-            pdf_bytes=download_pdf(
-                pdf
-            )
+
+        if keywords:
 
 
-            if pdf_bytes:
+            results.append({
+
+                "Year":
+                paper.get(
+                    "publication_year"
+                ),
 
 
-                text=extract_text(
-                    pdf_bytes
+                "Title":
+                paper.get(
+                    "title"
+                ),
+
+
+                "Keywords":
+                ", ".join(keywords),
+
+
+                "Evidence":
+                " | ".join(evidence),
+
+
+                "DOI":
+                paper.get(
+                    "doi",
+                    ""
                 )
 
-
-                evidence=find_keywords(
-                    text
-                )
+            })
 
 
+        progress.progress(
 
-                if len(evidence)>0:
+            20 + int((i+1)/total*80)
 
-
-                    results.append({
-
-                        "Author":
-                        paper["author_name"],
-
-                        "Year":
-                        paper.get(
-                            "publication_year",
-                            ""
-                        ),
-
-                        "Title":
-                        title,
-
-                        "Evidence":
-                        ", ".join(evidence),
-
-                        "PDF":
-                        pdf
-
-                    })
-
-
-
-        percent=(i+1)/total
-
-
-        pdf_bar.progress(
-            percent
-        )
-
-
-        progress_text.write(
-            f"Processed {i+1}/{total} | "
-            f"Matches: {len(results)}"
         )
 
 
 
-    # --------------------------------------
-    # OUTPUT
-    # --------------------------------------
+    return pd.DataFrame(results)
 
-    df=pd.DataFrame(
-        results
+
+
+
+
+
+# ======================================================
+# MAIN PIPELINE
+# ======================================================
+
+
+if run_button:
+
+
+    progress=st.progress(0)
+
+    status=st.empty()
+
+
+    author=find_best_author(
+        progress,
+        status
     )
 
 
-    if len(df)==0:
+    if author is None:
 
-        st.warning(
-            "No keyword matches found."
+        st.error(
+            "Author not found"
         )
 
-    else:
+        st.stop()
 
-        st.success(
-            f"Found {len(df)} matching papers."
+
+
+    st.success(
+        f"Selected author: {author['display_name']}"
+    )
+
+
+
+    papers=get_openalex_works(
+
+        author["id"],
+
+        progress,
+
+        status
+
+    )
+
+
+
+    st.info(
+        f"Found {len(papers)} publications"
+    )
+
+
+
+    df=analyse_papers(
+
+        papers,
+
+        progress,
+
+        status
+
+    )
+
+
+    progress.progress(100)
+
+
+    status.success(
+        "Completed"
+    )
+
+
+
+    st.subheader(
+        "Results"
+    )
+
+
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
+
+
+
+    if len(df)>0:
+
+
+        csv=df.to_csv(
+            index=False
         )
-
-
-        st.dataframe(
-            df,
-            use_container_width=True
-        )
-
-
-        output=BytesIO()
-
-
-        with pd.ExcelWriter(
-            output,
-            engine="openpyxl"
-        ) as writer:
-
-            df.to_excel(
-                writer,
-                index=False
-            )
 
 
         st.download_button(
 
-            "📥 Download Excel",
+            "Download CSV",
 
-            output.getvalue(),
+            csv,
 
-            "Publication_Search.xlsx",
+            "publication_results.csv",
 
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "text/csv"
 
         )
+
+
+        excel_buffer=io.BytesIO()
+
+
+        df.to_excel(
+
+            excel_buffer,
+
+            index=False
+
+        )
+
+
+        st.download_button(
+
+            "Download Excel",
+
+            excel_buffer.getvalue(),
+
+            "publication_results.xlsx"
+
+        )
+
