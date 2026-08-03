@@ -57,11 +57,27 @@ with st.sidebar:
     )
 
 
-    START_YEAR, END_YEAR = st.slider(
-        "Publication year range",
-        1900,
-        2026,
-        (2011, 2026)
+col1, col2 = st.columns(2)
+
+with col1:
+
+    START_YEAR = st.number_input(
+        "From year",
+        min_value=1900,
+        max_value=2026,
+        value=2011,
+        step=1
+    )
+
+
+with col2:
+
+    END_YEAR = st.number_input(
+        "To year",
+        min_value=1900,
+        max_value=2026,
+        value=2026,
+        step=1
     )
 
 
