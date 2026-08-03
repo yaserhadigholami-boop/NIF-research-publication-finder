@@ -195,26 +195,33 @@ def score_author(author):
 
 
 
-    institutions=[]
+    institutions = []
 
 
-    for inst in author.get(
-        "last_known_institutions",
-        []
-    ):
+    last_institutions = author.get(
+    "last_known_institutions"
+    )
 
 
-        institutions.append(
+    if isinstance(last_institutions, list):
 
-            inst.get(
-                "display_name",
-                ""
-            ).lower()
+            for inst in last_institutions:
 
-        )
+                if isinstance(inst, dict):
+
+                    institutions.append(
+
+                    inst.get(
+                    "display_name",
+                    ""
+                ).lower()
+
+            )
 
 
-    text=" ".join(institutions)
+inst_text = " ".join(
+    institutions
+)
 
 
 
