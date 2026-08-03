@@ -31,47 +31,40 @@ st.write(
 # ======================================================
 # USER INPUT
 # ======================================================
-
+# ======================================================
+# USER INPUT
+# ======================================================
 
 with st.sidebar:
 
-
     st.header("Search Settings")
 
-
-   AUTHOR_NAME = st.text_input(
+    AUTHOR_NAME = st.text_input(
         "Author name",
         placeholder="Enter author full name"
     )
 
-
     ORCID = st.text_input(
         "ORCID (optional)",
-        ""
+        placeholder="https://orcid.org/xxxx-xxxx-xxxx-xxxx"
     )
-
 
     INSTITUTION = st.text_input(
-        "Institution",
-        "University of Sydney"
+        "Institution (optional)",
+        placeholder="University name"
     )
-
 
     COUNTRY = st.text_input(
-        "Country",
-        "Australia"
+        "Country (optional)",
+        placeholder="Australia"
     )
-
-
 
     START_YEAR, END_YEAR = st.slider(
         "Publication year range",
         1900,
         2026,
-        (2011,2026)
+        (2011, 2026)
     )
-
-
 
     keyword_text = st.text_area(
         "Keywords (one per line)",
@@ -91,24 +84,15 @@ radiolabel
 """
     )
 
-
     KEYWORDS = [
-
         x.strip()
-
         for x in keyword_text.split("\n")
-
         if x.strip()
-
     ]
 
-
-
     run_button = st.button(
-        "🔍 Search Publications"
+        "Search Publications"
     )
-
-
 
 # ======================================================
 # FUNCTIONS
