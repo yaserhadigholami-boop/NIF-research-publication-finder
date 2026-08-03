@@ -132,46 +132,12 @@ def name_score(target,candidate):
 
 
 
-def search_openalex_authors(name):
-
-    url="https://api.openalex.org/authors"
-
-
-    params={
-
-        "search":name,
-
-        "per_page":25
-
-    }
-
-
-    r=requests.get(
-
-        url,
-
-        params=params,
-
-        timeout=60
-
-    )
-
-
-    return r.json().get(
-        "results",
-        []
-    )
-
-
-
-
 def score_author(author):
 
+    score = 0
 
-    score=0
 
-
-    name=author.get(
+    name = author.get(
         "display_name",
         ""
     )
@@ -183,62 +149,107 @@ def score_author(author):
     )
 
 
+
+    # -------------------------
+    # ORCID
+    # -------------------------
+
     if ORCID:
 
+        author_orcid = author.get(
+            "orcid"
+        )
 
-        if author.get("orcid"):
+        if author_orcid:
+
+            if ORCID.lower() in author_orcid.lower():
+
+                score += 100
 
 
-            if ORCID.lower() in author["orcid"].lower():
 
-                score +=100
-
-
+    # -------------------------
+    # Institution
+    # -------------------------
 
     institutions = []
 
 
-        last_institutions = author.get(
+    last_institutions = author.get(
         "last_known_institutions"
-            )
+    )
 
 
-                if isinstance(last_institutions, list):
+    if isinstance(
+        last_institutions,
+        list
+    ):
 
-                        for inst in last_institutions:
+        for inst in last_institutions:
 
-                            if isinstance(inst, dict):
+            if isinstance(
+                inst,
+                dict
+            ):
 
-                    institutions.append(
-
+                institutions.append(
                     inst.get(
-                    "display_name",
-                    ""
-                ).lower()
+                        "display_name",
+                        ""
+                    ).lower()
+                )
 
-            )
 
 
     inst_text = " ".join(
-    institutions
+        institutions
     )
 
 
 
-    if INSTITUTION.lower() in text:
+    if INSTITUTION.lower() in inst_text:
 
-        score+=40
+        score += 40
 
 
 
-    if "sydney" in text:
+    if "sydney" in inst_text:
 
-        score+=20
+        score += 20
+
+
+
+    # -------------------------
+    # Country
+    # -------------------------
+
+    if isinstance(
+        last_institutions,
+        list
+    ):
+
+        for inst in last_institutions:
+
+
+            if isinstance(
+                inst,
+                dict
+            ):
+
+
+                country = inst.get(
+                    "country_code",
+                    ""
+                )
+
+
+                if country == "AU":
+
+                    score += 20
 
 
 
     return score
-
 
 
 
