@@ -195,7 +195,7 @@ def score_author(author):
 
 
 
-    institutions = []
+institutions = []
 
 
     last_institutions = author.get(
